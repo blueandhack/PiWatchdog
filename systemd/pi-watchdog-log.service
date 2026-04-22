@@ -1,0 +1,9 @@
+[Unit]
+Description=PiWatchdog logger
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=PI_WATCHDOG_LOG_PATH=@PI_WATCHDOG_LOG_PATH@
+ExecStart=@PI_WATCHDOG_INSTALL_DIR@/bin/pi_watchdog_log.sh

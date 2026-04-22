@@ -1,0 +1,11 @@
+[Unit]
+Description=Run PiWatchdog logger every minute
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+AccuracySec=15s
+Unit=pi-watchdog-log.service
+
+[Install]
+WantedBy=timers.target
