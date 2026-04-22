@@ -370,7 +370,7 @@ function setMode(mode) {
 function parseSections(raw) {
   const sections = [];
   let current = null;
-  raw.split('\n').forEach(line => {
+  raw.split('\\n').forEach(line => {
     if (line.startsWith('=== ')) {
       sections.push({ title: 'Snapshot', body: line.replace(/^===\\s*/, '').replace(/\\s*===$/, '').trim() });
       current = null;
@@ -386,7 +386,7 @@ function parseSections(raw) {
   });
   return sections.map(section => ({
     title: section.title,
-    body: Array.isArray(section.lines) ? section.lines.join('\n').trim() : section.body,
+    body: Array.isArray(section.lines) ? section.lines.join('\\n').trim() : section.body,
   }));
 }
 function formatMetricValue(value, digits = 2, suffix = '') {
