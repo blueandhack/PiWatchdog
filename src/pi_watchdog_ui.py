@@ -422,6 +422,13 @@ load();
 
 KERNEL_PATTERN = re.compile(r"^(?P<mon>[A-Z][a-z]{2})\s+(?P<day>\d{1,2})\s+(?P<time>\d{2}:\d{2}:\d{2})")
 INTERESTING_KERNEL_WORDS = ("brcmf", "failed", "reset", "oom", "no buffer space", "mmc", "ext4")
+SIZE_UNITS = {
+    "B": 1,
+    "Ki": 1024,
+    "Mi": 1024 ** 2,
+    "Gi": 1024 ** 3,
+    "Ti": 1024 ** 4,
+}
 
 
 def split_blocks(text: str):
@@ -478,6 +485,13 @@ def classify_kernel_hits(snapshot_ts: datetime | None, kernel_hits: list[str]):
     return "actionable"
 
 
+def parse_size_to_bytes(value: str, unit: str):
+    factor = SIZE_UNITS.get(unit)
+    if factor is None:
+        return None
+    return float(value) * factor
+
+
 def parse_block(raw: str):
     first = raw.splitlines()[0].replace("=== ", "").replace(" ===", "").strip()
     snapshot_ts = parse_snapshot_ts(first)
@@ -498,11 +512,11 @@ def parse_block(raw: str):
         load_1 = float(match.group(1))
 
     mem_used_pct = None
-    match = re.search(r"Mem:\s+([0-9.]+)Gi\s+([0-9.]+)Gi", memory_section)
+    match = re.search(r"Mem:\s+([0-9.]+)([KMGT]?i|B)\s+([0-9.]+)([KMGT]?i|B)", memory_section)
     if match:
-        total = float(match.group(1))
-        used = float(match.group(2))
-        if total > 0:
+        total = parse_size_to_bytes(match.group(1), match.group(2))
+        used = parse_size_to_bytes(match.group(3), match.group(4))
+        if total and used is not None and total > 0:
             mem_used_pct = used / total * 100
 
     temps = [int(x) / 1000 for x in re.findall(r"thermal_zone\d+/temp=(\d+)", raw)]

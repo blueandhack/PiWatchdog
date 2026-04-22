@@ -7,6 +7,10 @@ It does two things:
 1. Logs recurring health snapshots with `systemd`
 2. Serves a small web UI so you can inspect recent history, charts, and raw diagnostic blocks
 
+## Screenshot
+
+![PiWatchdog dashboard](assets/pidashboard.png)
+
 The project is intentionally self-contained:
 
 - no Python packages to install
