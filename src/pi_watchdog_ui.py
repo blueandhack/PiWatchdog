@@ -63,6 +63,11 @@ HTML = """<!doctype html>
     .chart-grid { stroke:#e8f0f5; stroke-width:1; }
     .chart-line { fill:none; stroke-width:2.5; stroke-linecap:round; stroke-linejoin:round; }
     .chart-dot { r:2.2; }
+    .chart-card.clickable { cursor:pointer; transition:transform .16s ease, box-shadow .16s ease; }
+    .chart-card.clickable:hover { transform:translateY(-2px); box-shadow:0 24px 50px rgba(18,32,43,.12); }
+    .chart-legend { display:flex; flex-wrap:wrap; gap:10px; margin-bottom:8px; }
+    .legend-item { display:inline-flex; align-items:center; gap:6px; color:var(--muted); font-size:12px; }
+    .legend-swatch { width:10px; height:10px; border-radius:999px; }
     table { width:100%; border-collapse:collapse; background:var(--card-strong); border:1px solid var(--border); border-radius:18px; overflow:hidden; box-shadow:var(--shadow); }
     th, td { padding:10px 12px; border-bottom:1px solid var(--border); text-align:left; font-size:14px; vertical-align:top; }
     th { background:linear-gradient(180deg,#f9fbfd,#f2f7fa); color:#41515c; position:sticky; top:0; }
@@ -73,6 +78,10 @@ HTML = """<!doctype html>
     .bad { background:#fdecea; color:var(--bad); }
     .muted-pill { background:var(--soft); color:var(--muted); }
     .raw { white-space:pre-wrap; background:#0f1720; color:#d6e2ef; padding:14px; border-radius:12px; overflow:auto; max-height:60vh; font-size:13px; }
+    .inspect-btn { display:inline-flex; align-items:center; gap:10px; padding:9px 14px; border:none; border-radius:999px; background:linear-gradient(135deg,#0a6dff,#14b8a6); color:#fff; cursor:pointer; font-weight:800; letter-spacing:.01em; box-shadow:0 10px 20px rgba(10,109,255,.16); }
+    .inspect-btn::before { content:""; width:8px; height:8px; border-radius:999px; background:rgba(255,255,255,.92); box-shadow:0 0 10px rgba(255,255,255,.65); }
+    .inspect-btn::after { content:"Open"; font-weight:700; opacity:.92; }
+    .inspect-btn:hover { transform:translateY(-1px); }
     dialog { width:min(1000px,95vw); border:none; border-radius:20px; padding:0; box-shadow:0 30px 80px rgba(0,0,0,.25); }
     dialog::backdrop { background:rgba(4,12,20,.5); }
     .modal-head { display:flex; justify-content:space-between; align-items:center; padding:16px 18px; border-bottom:1px solid var(--border); background:#fff; }
@@ -80,6 +89,25 @@ HTML = """<!doctype html>
     .close { background:#e9eef2; color:#10202b; }
     .hint, .time-sub { color:var(--muted); font-size:12px; }
     .time-sub { display:block; margin-top:4px; }
+    .chart-modal-svg { width:100%; height:min(72vh,720px); display:block; }
+    .mode-switch { display:flex; gap:10px; margin-bottom:14px; }
+    .mode-btn { padding:8px 12px; border-radius:999px; border:1px solid var(--border); background:#fff; color:var(--muted); font-weight:700; cursor:pointer; }
+    .mode-btn.active { background:linear-gradient(135deg,var(--accent),#2d86ff); color:#fff; border-color:transparent; }
+    .readable { display:grid; gap:14px; }
+    .readable-overview { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:12px; }
+    .overview-card { background:linear-gradient(180deg,#ffffff,#f5f9fc); border:1px solid var(--border); border-radius:14px; padding:12px 14px; }
+    .overview-label { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em; font-weight:700; margin-bottom:6px; }
+    .overview-value { color:var(--text); font-size:18px; font-weight:800; line-height:1.2; }
+    .readable-card { background:#fff; border:1px solid var(--border); border-radius:14px; padding:14px; }
+    .readable-title { margin:0 0 8px; font-size:14px; font-weight:800; color:var(--text); }
+    .readable-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:10px; }
+    .readable-item { background:#f6fafc; border:1px solid var(--border); border-radius:12px; padding:10px 12px; }
+    .readable-item strong { display:block; font-size:12px; text-transform:uppercase; color:var(--muted); letter-spacing:.04em; margin-bottom:5px; }
+    .readable-item span { color:#173246; font-size:13px; line-height:1.45; white-space:pre-wrap; word-break:break-word; }
+    .readable-list { display:grid; gap:8px; }
+    .readable-list-item { background:#f7fbfd; border:1px solid var(--border); border-radius:12px; padding:10px 12px; color:#1f3f54; font-size:13px; line-height:1.5; white-space:pre-wrap; word-break:break-word; }
+    .readable-empty { color:var(--muted); font-size:13px; }
+    .readable-pre { margin:0; white-space:pre-wrap; color:#274052; font-size:13px; line-height:1.5; }
     @media (max-width: 720px) {
       header { padding:16px; }
       h1 { font-size:26px; }
@@ -148,12 +176,29 @@ HTML = """<!doctype html>
     <button class="close" onclick="document.getElementById('modal').close()">Close</button>
   </div>
   <div class="modal-body">
-    <div class="raw" id="raw"></div>
+    <div class="mode-switch">
+      <button class="mode-btn active" id="modeReadable" type="button">Readable</button>
+      <button class="mode-btn" id="modeRaw" type="button">Raw</button>
+    </div>
+    <div class="readable" id="readableView"></div>
+    <div class="raw" id="raw" hidden></div>
+  </div>
+</dialog>
+<dialog id="chartModal">
+  <div class="modal-head">
+    <strong id="chartModalTitle">Chart</strong>
+    <button class="close" onclick="document.getElementById('chartModal').close()">Close</button>
+  </div>
+  <div class="modal-body">
+    <div class="chart-meta" id="chartModalMeta"></div>
+    <div class="chart-legend" id="chartModalLegend"></div>
+    <div id="chartModalContent"></div>
   </div>
 </dialog>
 <script>
 let snapshots = [];
 let snapshotMap = new Map();
+let chartDefinitions = [];
 const DEFAULT_LIMIT = 250;
 const AUTOLOAD_INTERVAL_MS = 30000;
 let autoLoadTimer = null;
@@ -209,6 +254,14 @@ function seriesRange(values) {
   if (min === max) { min -= 1; max += 1; }
   return { min, max };
 }
+function combinedRange(seriesList) {
+  const nums = seriesList.flatMap(series => series.values).filter(v => Number.isFinite(v));
+  if (!nums.length) return null;
+  let min = Math.min(...nums);
+  let max = Math.max(...nums);
+  if (min === max) { min -= 1; max += 1; }
+  return { min, max };
+}
 function linePath(values, width, height, pad, range) {
   const nums = values.map(v => Number.isFinite(v) ? v : null);
   const innerW = width - pad * 2;
@@ -225,27 +278,54 @@ function linePath(values, width, height, pad, range) {
   const dots = points.map(point => `<circle class="chart-dot" cx="${point[0].toFixed(1)}" cy="${point[1].toFixed(1)}"></circle>`).join('');
   return { path, dots };
 }
-function renderChart(title, meta, values, color, formatter) {
-  const width = 320;
-  const height = 120;
+function renderChart(title, meta, seriesList, formatter, index, large = false) {
+  const width = large ? 1000 : 320;
+  const height = large ? 620 : 120;
   const pad = 16;
-  const range = seriesRange(values);
-  if (!range) return `<div class="chart-card"><div class="chart-head"><div class="chart-title">${esc(title)}</div><div class="chart-meta">${esc(meta)}</div></div><div class="chart-empty">No data in this window.</div></div>`;
-  const { path, dots } = linePath(values, width, height, pad, range);
+  const range = combinedRange(seriesList);
+  const legend = seriesList.length > 1
+    ? `<div class="chart-legend">${seriesList.map(series => `<span class="legend-item"><span class="legend-swatch" style="background:${series.color}"></span>${esc(series.label)}</span>`).join('')}</div>`
+    : '';
+  const cardClass = large ? 'chart-card' : 'chart-card clickable';
+  const dataAttr = large ? '' : ` data-chart="${index}"`;
+  const svgClass = large ? 'chart-modal-svg' : 'chart-svg';
+  if (!range) return `<div class="${cardClass}"${dataAttr}><div class="chart-head"><div class="chart-title">${esc(title)}</div><div class="chart-meta">${esc(meta)}</div></div>${legend}<div class="chart-empty">No data in this window.</div></div>`;
+  const lines = seriesList.map(series => {
+    const { path, dots } = linePath(series.values, width, height, pad, range);
+    return `<path class="chart-line" stroke="${series.color}" d="${path}"></path><g fill="${series.color}">${dots}</g>`;
+  }).join('');
   const top = formatter(range.max);
   const bottom = formatter(range.min);
-  const latest = formatter(values.filter(v => Number.isFinite(v)).slice(-1)[0]);
-  return `<div class="chart-card"><div class="chart-head"><div class="chart-title">${esc(title)}</div><div class="chart-meta">${esc(meta)} · latest ${esc(latest)}</div></div><svg class="chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-label="${esc(title)} trend"><line class="chart-grid" x1="${pad}" y1="${pad}" x2="${width - pad}" y2="${pad}"></line><line class="chart-grid" x1="${pad}" y1="${height / 2}" x2="${width - pad}" y2="${height / 2}"></line><line class="chart-axis" x1="${pad}" y1="${height - pad}" x2="${width - pad}" y2="${height - pad}"></line><path class="chart-line" stroke="${color}" d="${path}"></path><g fill="${color}">${dots}</g><text x="${pad}" y="12" font-size="11" fill="#5b6b76">${esc(top)}</text><text x="${pad}" y="${height - 2}" font-size="11" fill="#5b6b76">${esc(bottom)}</text></svg></div>`;
+  const latestParts = seriesList.map(series => {
+    const latest = series.values.filter(v => Number.isFinite(v)).slice(-1)[0];
+    return `${series.label} ${formatter(latest)}`;
+  });
+  return `<div class="${cardClass}"${dataAttr}><div class="chart-head"><div class="chart-title">${esc(title)}</div><div class="chart-meta">${esc(meta)} · latest ${esc(latestParts.join(' · '))}</div></div>${legend}<svg class="${svgClass}" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-label="${esc(title)} trend"><line class="chart-grid" x1="${pad}" y1="${pad}" x2="${width - pad}" y2="${pad}"></line><line class="chart-grid" x1="${pad}" y1="${height / 2}" x2="${width - pad}" y2="${height / 2}"></line><line class="chart-axis" x1="${pad}" y1="${height - pad}" x2="${width - pad}" y2="${height - pad}"></line>${lines}<text x="${pad}" y="12" font-size="11" fill="#5b6b76">${esc(top)}</text><text x="${pad}" y="${height - 2}" font-size="11" fill="#5b6b76">${esc(bottom)}</text></svg></div>`;
 }
 function renderCharts() {
-  const charts = [
-    ['Disk Usage', 'root filesystem', snapshots.map(s => s.root_use_pct), '#0057b8', v => `${v.toFixed(0)}%`],
-    ['CPU Load', '1-minute load', snapshots.map(s => s.load_1), '#b85c00', v => v.toFixed(2)],
-    ['Memory Used', 'RAM in use', snapshots.map(s => s.mem_used_pct), '#18794e', v => `${v.toFixed(0)}%`],
-    ['Temperature', 'max thermal zone', snapshots.map(s => s.temp_max_c), '#c0362c', v => `${v.toFixed(1)} C`],
-    ['Ping Latency', 'gateway RTT', snapshots.map(s => s.ping_avg_ms), '#7a3cff', v => `${v.toFixed(1)} ms`],
+  chartDefinitions = [
+    ['Disk Usage', 'root filesystem', [{ label: 'root', values: snapshots.map(s => s.root_use_pct), color: '#0057b8' }], v => `${v.toFixed(0)}%`],
+    ['CPU Load', '1, 5, 15 minute load', [
+      { label: '1m', values: snapshots.map(s => s.load_1), color: '#b85c00' },
+      { label: '5m', values: snapshots.map(s => s.load_5), color: '#0a6dff' },
+      { label: '15m', values: snapshots.map(s => s.load_15), color: '#14b8a6' },
+    ], v => v.toFixed(2)],
+    ['Memory Used', 'RAM in use', [{ label: 'used', values: snapshots.map(s => s.mem_used_pct), color: '#18794e' }], v => `${v.toFixed(0)}%`],
+    ['Temperature', 'max thermal zone', [{ label: 'temp', values: snapshots.map(s => s.temp_max_c), color: '#c0362c' }], v => `${v.toFixed(1)} C`],
+    ['Ping Latency', 'gateway RTT', [{ label: 'ping', values: snapshots.map(s => s.ping_avg_ms), color: '#7a3cff' }], v => `${v.toFixed(1)} ms`],
   ];
-  document.getElementById('charts').innerHTML = charts.map(([title, meta, values, color, formatter]) => renderChart(title, meta, values, color, formatter)).join('');
+  document.getElementById('charts').innerHTML = chartDefinitions.map(([title, meta, seriesList, formatter], index) => renderChart(title, meta, seriesList, formatter, index)).join('');
+  document.querySelectorAll('.chart-card.clickable[data-chart]').forEach(card => card.onclick = () => openChartModal(Number(card.dataset.chart)));
+}
+function openChartModal(index) {
+  const [title, meta, seriesList, formatter] = chartDefinitions[index];
+  document.getElementById('chartModalTitle').textContent = title;
+  document.getElementById('chartModalMeta').textContent = meta;
+  document.getElementById('chartModalLegend').innerHTML = seriesList.length > 1
+    ? seriesList.map(series => `<span class="legend-item"><span class="legend-swatch" style="background:${series.color}"></span>${esc(series.label)}</span>`).join('')
+    : '';
+  document.getElementById('chartModalContent').innerHTML = renderChart(title, meta, seriesList, formatter, index, true);
+  document.getElementById('chartModal').showModal();
 }
 function kernelPill(s) {
   if (s.kernel_status === 'actionable') return pill('bad', 'active warning');
@@ -261,17 +341,96 @@ function rowNotes(s) {
 }
 function rowHtml(s, index) {
   const local = formatLocalTime(s.timestamp);
-  return `<tr class="${(s.ping_status !== 'ok' || s.dns_status !== 'ok') ? 'fail' : ''}"><td data-label="Timestamp"><div>${esc(local.main)}</div><span class="time-sub">${esc(local.sub || '-')}</span></td><td data-label="Ping">${pill(s.ping_status === 'ok' ? 'ok' : 'bad', s.ping_status)}</td><td data-label="DNS">${pill(s.dns_status === 'ok' ? 'ok' : 'bad', s.dns_status)}</td><td data-label="Kernel">${kernelPill(s)}</td><td data-label="Root Use">${esc(s.root_use || '-')}</td><td data-label="Temp Max">${s.temp_max_c == null ? '-' : s.temp_max_c.toFixed(1) + ' C'}</td><td data-label="Notes">${esc(rowNotes(s))}</td><td data-label="Raw"><button data-i="${index}">Open</button></td></tr>`;
+  return `<tr class="${(s.ping_status !== 'ok' || s.dns_status !== 'ok') ? 'fail' : ''}"><td data-label="Timestamp"><div>${esc(local.main)}</div><span class="time-sub">${esc(local.sub || '-')}</span></td><td data-label="Ping">${pill(s.ping_status === 'ok' ? 'ok' : 'bad', s.ping_status)}</td><td data-label="DNS">${pill(s.dns_status === 'ok' ? 'ok' : 'bad', s.dns_status)}</td><td data-label="Kernel">${kernelPill(s)}</td><td data-label="Root Use">${esc(s.root_use || '-')}</td><td data-label="Temp Max">${s.temp_max_c == null ? '-' : s.temp_max_c.toFixed(1) + ' C'}</td><td data-label="Notes">${esc(rowNotes(s))}</td><td data-label="Inspect"><button class="inspect-btn" data-i="${index}" type="button">Inspect</button></td></tr>`;
 }
 function bindRowButtons(filtered) {
   document.querySelectorAll('button[data-i]').forEach(btn => btn.onclick = async () => {
     const s = filtered[Number(btn.dataset.i)];
     document.getElementById('modalTitle').textContent = s.timestamp;
+    setMode('readable');
     document.getElementById('raw').textContent = 'Loading...';
+    document.getElementById('readableView').innerHTML = '<div class="readable-card"><h3 class="readable-title">Loading</h3><pre class="readable-pre">Preparing snapshot overview...</pre></div>';
     document.getElementById('modal').showModal();
     const raw = await loadRaw(s.id);
     document.getElementById('raw').textContent = raw;
+    document.getElementById('readableView').innerHTML = renderReadable(raw, s);
   });
+}
+function setMode(mode) {
+  const raw = document.getElementById('raw');
+  const readable = document.getElementById('readableView');
+  const rawBtn = document.getElementById('modeRaw');
+  const readableBtn = document.getElementById('modeReadable');
+  const showRaw = mode === 'raw';
+  raw.hidden = !showRaw;
+  readable.hidden = showRaw;
+  rawBtn.classList.toggle('active', showRaw);
+  readableBtn.classList.toggle('active', !showRaw);
+}
+function parseSections(raw) {
+  const sections = [];
+  let current = null;
+  raw.split('\n').forEach(line => {
+    if (line.startsWith('=== ')) {
+      sections.push({ title: 'Snapshot', body: line.replace(/^===\\s*/, '').replace(/\\s*===$/, '').trim() });
+      current = null;
+      return;
+    }
+    const match = line.match(/^--\\s(.+)\\s--$/);
+    if (match) {
+      current = { title: match[1], lines: [] };
+      sections.push(current);
+      return;
+    }
+    if (current) current.lines.push(line);
+  });
+  return sections.map(section => ({
+    title: section.title,
+    body: Array.isArray(section.lines) ? section.lines.join('\n').trim() : section.body,
+  }));
+}
+function formatMetricValue(value, digits = 2, suffix = '') {
+  if (value == null || value === '') return '-';
+  return `${Number(value).toFixed(digits)}${suffix}`;
+}
+function formatCpuLoads(snapshot) {
+  return [snapshot.load_1, snapshot.load_5, snapshot.load_15].map(value => formatMetricValue(value)).join(' / ');
+}
+function renderOverview(snapshot) {
+  return `<div class="readable-overview">
+    <div class="overview-card"><div class="overview-label">Recorded</div><div class="overview-value">${esc(formatLocalTime(snapshot.timestamp).main)}</div></div>
+    <div class="overview-card"><div class="overview-label">Network</div><div class="overview-value">${esc(snapshot.ping_status)} ping / ${esc(snapshot.dns_status)} dns</div></div>
+    <div class="overview-card"><div class="overview-label">CPU Load</div><div class="overview-value">${esc(formatCpuLoads(snapshot))}</div></div>
+    <div class="overview-card"><div class="overview-label">Memory</div><div class="overview-value">${snapshot.mem_used_pct == null ? '-' : snapshot.mem_used_pct.toFixed(1) + '%'}</div></div>
+    <div class="overview-card"><div class="overview-label">Root Disk</div><div class="overview-value">${esc(snapshot.root_use || '-')}</div></div>
+    <div class="overview-card"><div class="overview-label">Temperature</div><div class="overview-value">${snapshot.temp_max_c == null ? '-' : snapshot.temp_max_c.toFixed(1) + ' C'}</div></div>
+  </div>`;
+}
+function tryRenderKeyValue(lines) {
+  const pairs = lines.map(line => {
+    const kvMatch = line.match(/^([^:=]{2,80})[:=]\\s*(.+)$/);
+    if (kvMatch) return { key: kvMatch[1].trim(), value: kvMatch[2].trim() };
+    const memMatch = line.match(/^(Mem|Swap):\\s+(.+)$/);
+    if (memMatch) return { key: memMatch[1], value: memMatch[2].trim() };
+    return null;
+  });
+  if (pairs.some(pair => pair === null)) return '';
+  return `<div class="readable-grid">${pairs.map(pair => `<div class="readable-item"><strong>${esc(pair.key)}</strong><span>${esc(pair.value)}</span></div>`).join('')}</div>`;
+}
+function renderSectionBody(section) {
+  const body = (section.body || '').trim();
+  if (!body) return '<div class="readable-empty">No data</div>';
+  const lines = body.split('\\n').map(line => line.trimEnd()).filter(Boolean);
+  const grid = tryRenderKeyValue(lines);
+  if (grid) return grid;
+  if (lines.length <= 8 && lines.every(line => line.length < 180)) {
+    return `<div class="readable-list">${lines.map(line => `<div class="readable-list-item">${esc(line)}</div>`).join('')}</div>`;
+  }
+  return `<pre class="readable-pre">${esc(body)}</pre>`;
+}
+function renderReadable(raw, snapshot) {
+  const sections = parseSections(raw);
+  return `${renderOverview(snapshot)}${sections.map(section => `<div class="readable-card"><h3 class="readable-title">${esc(section.title)}</h3>${renderSectionBody(section)}</div>`).join('')}`;
 }
 function currentFilterState() {
   return { q: document.getElementById('search').value.toLowerCase(), mode: document.getElementById('filter').value };
@@ -411,9 +570,12 @@ document.getElementById('autoload').addEventListener('click', () => {
   }
 });
 document.getElementById('reload').addEventListener('click', load);
+document.getElementById('modeReadable').addEventListener('click', () => setMode('readable'));
+document.getElementById('modeRaw').addEventListener('click', () => setMode('raw'));
 if (window.localStorage.getItem('watchdog-autoload') === 'on') startAutoLoad();
 updateSortButton();
 updateAutoLoadButton();
+setMode('readable');
 load();
 </script>
 </body>
@@ -507,9 +669,13 @@ def parse_block(raw: str):
     root_use_pct = float(root_use.rstrip("%")) if root_use else None
 
     load_1 = None
-    match = re.search(r"([0-9.]+)\s+[0-9.]+\s+[0-9.]+\s+\d+/\d+\s+\d+", load_section)
+    load_5 = None
+    load_15 = None
+    match = re.search(r"([0-9.]+)\s+([0-9.]+)\s+([0-9.]+)\s+\d+/\d+\s+\d+", load_section)
     if match:
         load_1 = float(match.group(1))
+        load_5 = float(match.group(2))
+        load_15 = float(match.group(3))
 
     mem_used_pct = None
     match = re.search(r"Mem:\s+([0-9.]+)([KMGT]?i|B)\s+([0-9.]+)([KMGT]?i|B)", memory_section)
@@ -553,6 +719,8 @@ def parse_block(raw: str):
         "root_use": root_use,
         "root_use_pct": root_use_pct,
         "load_1": load_1,
+        "load_5": load_5,
+        "load_15": load_15,
         "mem_used_pct": mem_used_pct,
         "temp_max_c": max(temps) if temps else None,
         "failure_diagnostics": "-- failure diagnostics --" in raw,
@@ -623,6 +791,8 @@ def snapshot_brief(snapshot: dict):
         "root_use": snapshot["root_use"],
         "root_use_pct": snapshot["root_use_pct"],
         "load_1": snapshot["load_1"],
+        "load_5": snapshot["load_5"],
+        "load_15": snapshot["load_15"],
         "mem_used_pct": snapshot["mem_used_pct"],
         "temp_max_c": snapshot["temp_max_c"],
         "failure_diagnostics": snapshot["failure_diagnostics"],
