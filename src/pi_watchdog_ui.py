@@ -63,6 +63,14 @@ HTML = """<!doctype html>
     .chart-grid { stroke:#e8f0f5; stroke-width:1; }
     .chart-line { fill:none; stroke-width:2.5; stroke-linecap:round; stroke-linejoin:round; }
     .chart-dot { r:2.2; }
+    .chart-focus-line { stroke:rgba(18,32,43,.28); stroke-width:1.5; stroke-dasharray:4 4; }
+    .chart-focus-dot { stroke:#fff; stroke-width:2; }
+    .chart-tooltip { position:absolute; z-index:3; min-width:140px; max-width:220px; padding:10px 12px; border-radius:14px; background:rgba(11,34,56,.94); color:#eef6fb; box-shadow:0 18px 36px rgba(7,18,30,.24); pointer-events:none; font-size:12px; line-height:1.45; transform:translateX(-50%); }
+    .chart-tooltip-time { color:#d7e7f4; font-weight:700; margin-bottom:6px; }
+    .chart-tooltip-row { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+    .chart-tooltip-label { display:inline-flex; align-items:center; gap:6px; color:#d7e7f4; }
+    .chart-tooltip-swatch { width:9px; height:9px; border-radius:999px; }
+    .chart-tooltip-value { color:#fff; font-weight:700; }
     .chart-card.clickable { cursor:pointer; transition:transform .16s ease, box-shadow .16s ease; }
     .chart-card.clickable:hover { transform:translateY(-2px); box-shadow:0 24px 50px rgba(18,32,43,.12); }
     .chart-legend { display:flex; flex-wrap:wrap; gap:10px; margin-bottom:8px; }
@@ -86,7 +94,9 @@ HTML = """<!doctype html>
     dialog::backdrop { background:rgba(4,12,20,.5); }
     .modal-head { display:flex; justify-content:space-between; align-items:center; padding:16px 18px; border-bottom:1px solid var(--border); background:#fff; }
     .modal-body { padding:18px; background:#f8fbfd; }
-    .close { background:#e9eef2; color:#10202b; }
+    .close { display:inline-flex; align-items:center; justify-content:center; min-width:42px; height:42px; padding:0 16px; border:none; border-radius:999px; background:linear-gradient(180deg,#f8fbfd,#e8f0f5); color:#10202b; font-weight:800; cursor:pointer; box-shadow:inset 0 1px 0 rgba(255,255,255,.85), 0 8px 18px rgba(18,32,43,.08); transition:transform .16s ease, box-shadow .16s ease, background .16s ease; }
+    .close:hover { transform:translateY(-1px); box-shadow:inset 0 1px 0 rgba(255,255,255,.92), 0 12px 22px rgba(18,32,43,.12); background:linear-gradient(180deg,#ffffff,#eaf3f8); }
+    .close:active { transform:translateY(0); box-shadow:inset 0 2px 4px rgba(18,32,43,.08); }
     .hint, .time-sub { color:var(--muted); font-size:12px; }
     .time-sub { display:block; margin-top:4px; }
     .chart-modal-svg { width:100%; height:min(72vh,720px); display:block; }
@@ -94,6 +104,7 @@ HTML = """<!doctype html>
     .mode-btn { padding:8px 12px; border-radius:999px; border:1px solid var(--border); background:#fff; color:var(--muted); font-weight:700; cursor:pointer; }
     .mode-btn.active { background:linear-gradient(135deg,var(--accent),#2d86ff); color:#fff; border-color:transparent; }
     .readable { display:grid; gap:14px; }
+    [hidden] { display:none !important; }
     .readable-overview { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:12px; }
     .overview-card { background:linear-gradient(180deg,#ffffff,#f5f9fc); border:1px solid var(--border); border-radius:14px; padding:12px 14px; }
     .overview-label { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em; font-weight:700; margin-bottom:6px; }
@@ -173,7 +184,7 @@ HTML = """<!doctype html>
 <dialog id="modal">
   <div class="modal-head">
     <strong id="modalTitle">Snapshot</strong>
-    <button class="close" onclick="document.getElementById('modal').close()">Close</button>
+    <button class="close" type="button" onclick="document.getElementById('modal').close()" aria-label="Close details">Close</button>
   </div>
   <div class="modal-body">
     <div class="mode-switch">
@@ -187,7 +198,7 @@ HTML = """<!doctype html>
 <dialog id="chartModal">
   <div class="modal-head">
     <strong id="chartModalTitle">Chart</strong>
-    <button class="close" onclick="document.getElementById('chartModal').close()">Close</button>
+    <button class="close" type="button" onclick="document.getElementById('chartModal').close()" aria-label="Close chart">Close</button>
   </div>
   <div class="modal-body">
     <div class="chart-meta" id="chartModalMeta"></div>
@@ -300,7 +311,8 @@ function renderChart(title, meta, seriesList, formatter, index, large = false) {
     const latest = series.values.filter(v => Number.isFinite(v)).slice(-1)[0];
     return `${series.label} ${formatter(latest)}`;
   });
-  return `<div class="${cardClass}"${dataAttr}><div class="chart-head"><div class="chart-title">${esc(title)}</div><div class="chart-meta">${esc(meta)} · latest ${esc(latestParts.join(' · '))}</div></div>${legend}<svg class="${svgClass}" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-label="${esc(title)} trend"><line class="chart-grid" x1="${pad}" y1="${pad}" x2="${width - pad}" y2="${pad}"></line><line class="chart-grid" x1="${pad}" y1="${height / 2}" x2="${width - pad}" y2="${height / 2}"></line><line class="chart-axis" x1="${pad}" y1="${height - pad}" x2="${width - pad}" y2="${height - pad}"></line>${lines}<text x="${pad}" y="12" font-size="11" fill="#5b6b76">${esc(top)}</text><text x="${pad}" y="${height - 2}" font-size="11" fill="#5b6b76">${esc(bottom)}</text></svg></div>`;
+  const focusDots = seriesList.map(series => `<circle class="chart-focus-dot" data-focus-dot="${esc(series.label)}" r="${large ? 5 : 4}" fill="${series.color}" visibility="hidden"></circle>`).join('');
+  return `<div class="${cardClass}"${dataAttr}><div class="chart-head"><div class="chart-title">${esc(title)}</div><div class="chart-meta">${esc(meta)} · latest ${esc(latestParts.join(' · '))}</div></div>${legend}<svg class="${svgClass}" data-chart-svg="${index}" data-chart-large="${large ? '1' : '0'}" data-chart-width="${width}" data-chart-height="${height}" data-chart-pad="${pad}" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-label="${esc(title)} trend"><line class="chart-grid" x1="${pad}" y1="${pad}" x2="${width - pad}" y2="${pad}"></line><line class="chart-grid" x1="${pad}" y1="${height / 2}" x2="${width - pad}" y2="${height / 2}"></line><line class="chart-axis" x1="${pad}" y1="${height - pad}" x2="${width - pad}" y2="${height - pad}"></line>${lines}<line class="chart-focus-line" x1="${pad}" y1="${pad}" x2="${pad}" y2="${height - pad}" visibility="hidden"></line>${focusDots}<text x="${pad}" y="12" font-size="11" fill="#5b6b76">${esc(top)}</text><text x="${pad}" y="${height - 2}" font-size="11" fill="#5b6b76">${esc(bottom)}</text></svg><div class="chart-tooltip" hidden></div></div>`;
 }
 function renderCharts() {
   chartDefinitions = [
@@ -315,6 +327,7 @@ function renderCharts() {
     ['Ping Latency', 'gateway RTT', [{ label: 'ping', values: snapshots.map(s => s.ping_avg_ms), color: '#7a3cff' }], v => `${v.toFixed(1)} ms`],
   ];
   document.getElementById('charts').innerHTML = chartDefinitions.map(([title, meta, seriesList, formatter], index) => renderChart(title, meta, seriesList, formatter, index)).join('');
+  bindChartTooltips();
   document.querySelectorAll('.chart-card.clickable[data-chart]').forEach(card => card.onclick = () => openChartModal(Number(card.dataset.chart)));
 }
 function openChartModal(index) {
@@ -325,7 +338,79 @@ function openChartModal(index) {
     ? seriesList.map(series => `<span class="legend-item"><span class="legend-swatch" style="background:${series.color}"></span>${esc(series.label)}</span>`).join('')
     : '';
   document.getElementById('chartModalContent').innerHTML = renderChart(title, meta, seriesList, formatter, index, true);
+  bindChartTooltips(document.getElementById('chartModalContent'));
   document.getElementById('chartModal').showModal();
+}
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+function buildChartTooltip(index, pointIndex) {
+  const [, , seriesList, formatter] = chartDefinitions[index];
+  const snapshot = snapshots[pointIndex];
+  const local = snapshot ? formatLocalTime(snapshot.timestamp) : { main: `Point ${pointIndex + 1}`, sub: '' };
+  const rows = seriesList.map(series => {
+    const value = series.values[pointIndex];
+    return `<div class="chart-tooltip-row"><span class="chart-tooltip-label"><span class="chart-tooltip-swatch" style="background:${series.color}"></span>${esc(series.label)}</span><span class="chart-tooltip-value">${esc(Number.isFinite(value) ? formatter(value) : '-')}</span></div>`;
+  }).join('');
+  return `<div class="chart-tooltip-time">${esc(local.main)}</div>${rows}`;
+}
+function bindChartTooltips(root = document) {
+  root.querySelectorAll('svg[data-chart-svg]').forEach(svg => {
+    const card = svg.closest('.chart-card');
+    const tooltip = card ? card.querySelector('.chart-tooltip') : null;
+    const focusLine = svg.querySelector('.chart-focus-line');
+    const focusDots = [...svg.querySelectorAll('.chart-focus-dot')];
+    if (!card || !tooltip || !focusLine) return;
+    const index = Number(svg.dataset.chartSvg);
+    const width = Number(svg.dataset.chartWidth);
+    const height = Number(svg.dataset.chartHeight);
+    const pad = Number(svg.dataset.chartPad);
+    const updateTooltip = clientX => {
+      const [, , seriesList] = chartDefinitions[index];
+      const range = combinedRange(seriesList);
+      if (!range || !snapshots.length) return;
+      const rect = svg.getBoundingClientRect();
+      const innerW = width - pad * 2;
+      const innerH = height - pad * 2;
+      const xRatio = clamp((clientX - rect.left) / rect.width, 0, 1);
+      const pointIndex = snapshots.length === 1 ? 0 : clamp(Math.round(xRatio * (snapshots.length - 1)), 0, snapshots.length - 1);
+      const focusX = pad + (snapshots.length === 1 ? innerW / 2 : (pointIndex / (snapshots.length - 1)) * innerW);
+      focusLine.setAttribute('x1', focusX.toFixed(1));
+      focusLine.setAttribute('x2', focusX.toFixed(1));
+      focusLine.setAttribute('visibility', 'visible');
+      tooltip.hidden = false;
+      tooltip.innerHTML = buildChartTooltip(index, pointIndex);
+      const cardRect = card.getBoundingClientRect();
+      const tooltipLeft = clamp((clientX - cardRect.left), 86, cardRect.width - 86);
+      tooltip.style.left = `${tooltipLeft}px`;
+      tooltip.style.top = `${clamp(rect.top - cardRect.top + 14, 14, Math.max(14, cardRect.height - 72))}px`;
+      focusDots.forEach((dot, seriesIndex) => {
+        const value = chartDefinitions[index][2][seriesIndex].values[pointIndex];
+        if (!Number.isFinite(value)) {
+          dot.setAttribute('visibility', 'hidden');
+          return;
+        }
+        const y = pad + (1 - ((value - range.min) / (range.max - range.min))) * innerH;
+        dot.setAttribute('cx', focusX.toFixed(1));
+        dot.setAttribute('cy', y.toFixed(1));
+        dot.setAttribute('visibility', 'visible');
+      });
+    };
+    const clearTooltip = () => {
+      tooltip.hidden = true;
+      focusLine.setAttribute('visibility', 'hidden');
+      focusDots.forEach(dot => dot.setAttribute('visibility', 'hidden'));
+    };
+    svg.onmousemove = event => updateTooltip(event.clientX);
+    svg.onmouseleave = clearTooltip;
+    svg.ontouchstart = event => {
+      if (event.touches[0]) updateTooltip(event.touches[0].clientX);
+    };
+    svg.ontouchmove = event => {
+      if (event.touches[0]) updateTooltip(event.touches[0].clientX);
+    };
+    svg.ontouchend = clearTooltip;
+  });
 }
 function kernelPill(s) {
   if (s.kernel_status === 'actionable') return pill('bad', 'active warning');
@@ -572,6 +657,12 @@ document.getElementById('autoload').addEventListener('click', () => {
 document.getElementById('reload').addEventListener('click', load);
 document.getElementById('modeReadable').addEventListener('click', () => setMode('readable'));
 document.getElementById('modeRaw').addEventListener('click', () => setMode('raw'));
+['modal', 'chartModal'].forEach(id => {
+  const dialog = document.getElementById(id);
+  dialog.addEventListener('click', event => {
+    if (event.target === dialog) dialog.close();
+  });
+});
 if (window.localStorage.getItem('watchdog-autoload') === 'on') startAutoLoad();
 updateSortButton();
 updateAutoLoadButton();

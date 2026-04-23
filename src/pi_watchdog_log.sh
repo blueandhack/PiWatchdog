@@ -74,7 +74,7 @@ ping_check() {
     out "no default gateway found"
     return 1
   fi
-  ping -c 1 -W 2 "${gw}" 2>&1
+  ping -c 5 -W 2 "${gw}" 2>&1
 }
 
 emit_failure_diagnostics() {
