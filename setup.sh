@@ -7,6 +7,7 @@ PI_WATCHDOG_USER="${PI_WATCHDOG_USER:-${SUDO_USER:-$(id -un)}}"
 PI_WATCHDOG_PORT="${PI_WATCHDOG_PORT:-8098}"
 PI_WATCHDOG_INSTALL_DIR="${PI_WATCHDOG_INSTALL_DIR:-/opt/pi-watchdog}"
 PI_WATCHDOG_LOG_PATH="${PI_WATCHDOG_LOG_PATH:-/var/log/pi-watchdog.log}"
+PI_WATCHDOG_SPEED_HISTORY_PATH="${PI_WATCHDOG_SPEED_HISTORY_PATH:-}"
 
 require_root() {
   if [[ "${EUID}" -ne 0 ]]; then
@@ -23,6 +24,7 @@ render_template() {
     -e "s|@PI_WATCHDOG_PORT@|${PI_WATCHDOG_PORT}|g" \
     -e "s|@PI_WATCHDOG_INSTALL_DIR@|${PI_WATCHDOG_INSTALL_DIR}|g" \
     -e "s|@PI_WATCHDOG_LOG_PATH@|${PI_WATCHDOG_LOG_PATH}|g" \
+    -e "s|@PI_WATCHDOG_SPEED_HISTORY_PATH@|${PI_WATCHDOG_SPEED_HISTORY_PATH}|g" \
     "$src" > "$dst"
 }
 
@@ -33,6 +35,9 @@ echo "  user: ${PI_WATCHDOG_USER}"
 echo "  port: ${PI_WATCHDOG_PORT}"
 echo "  install dir: ${PI_WATCHDOG_INSTALL_DIR}"
 echo "  log path: ${PI_WATCHDOG_LOG_PATH}"
+if [[ -n "${PI_WATCHDOG_SPEED_HISTORY_PATH}" ]]; then
+  echo "  speed history path: ${PI_WATCHDOG_SPEED_HISTORY_PATH}"
+fi
 
 install -d -m 755 "${PI_WATCHDOG_INSTALL_DIR}"
 install -d -m 755 "${PI_WATCHDOG_INSTALL_DIR}/bin"

@@ -5,7 +5,7 @@ PiWatchdog is a lightweight watchdog logger and web UI for Raspberry Pi, Rock Pi
 It does two things:
 
 1. Logs recurring health snapshots with `systemd`
-2. Serves a small web UI so you can inspect recent history, charts, and raw diagnostic blocks
+2. Serves a small web UI so you can inspect recent history, charts, raw diagnostic blocks, speed tests, alerts, containers, and maintenance status
 
 ## Screenshot
 
@@ -15,8 +15,8 @@ The project is intentionally self-contained:
 
 - no Python packages to install
 - no Node.js
-- no database
-- no Docker dependency
+- no database required
+- no Docker dependency, but Docker is detected when available
 
 ## What it records
 
@@ -56,7 +56,45 @@ When ping or DNS fails, it also records extra diagnostics such as:
   - memory usage
   - temperature
   - ping latency
+- clickable chart expansion with hover labels
 - auto-load mode that redraws charts and appends new rows without reloading the page
+- readable/raw snapshot inspector
+- LAN speed test between the browser and the Pi
+- network quality timeline for saved speed test results
+- event timeline for notable watchdog findings
+- in-page alerts for disk, temperature, DNS, ping, and containers
+- container health panel when Docker is available
+- maintenance panel for log rotation, cleanup status, reboot history, and storage breakdown
+
+## LAN speed tests
+
+The UI can measure local network speed between the browser and the Pi:
+
+- `Download` measures Pi to browser throughput
+- `Upload` measures browser to Pi throughput
+- available test sizes go up to `1 GB`
+- each successful result is saved to a small JSONL history file
+- history includes client label, client IP, Mbps, direction, quality badge, and latest watchdog ping avg/max
+
+By default, speed history is stored under the web UI service user's home directory:
+
+```text
+~/.local/share/pi-watchdog/speed-history.jsonl
+```
+
+Use the browser label field to distinguish devices or locations, such as `MacBook`, `iPhone upstairs`, or `office desktop`.
+
+## Alerts
+
+The current in-page alert checks are:
+
+- disk over `80%`
+- temperature over `70 C`
+- DNS failed for `5` consecutive watchdog snapshots
+- gateway ping failed for `5` consecutive watchdog snapshots
+- Docker container not running, when Docker is available
+
+Alerts are local to the web UI for now. Webhook or email delivery can be added later.
 
 ## Requirements
 
@@ -112,6 +150,7 @@ sudo PI_WATCHDOG_USER=pi \
      PI_WATCHDOG_PORT=8098 \
      PI_WATCHDOG_INSTALL_DIR=/opt/pi-watchdog \
      PI_WATCHDOG_LOG_PATH=/var/log/pi-watchdog.log \
+     PI_WATCHDOG_SPEED_HISTORY_PATH=/home/pi/.local/share/pi-watchdog/speed-history.jsonl \
      ./setup.sh
 ```
 
@@ -121,6 +160,7 @@ Available variables:
 - `PI_WATCHDOG_PORT`
 - `PI_WATCHDOG_INSTALL_DIR`
 - `PI_WATCHDOG_LOG_PATH`
+- `PI_WATCHDOG_SPEED_HISTORY_PATH`
 
 ## Updating
 
@@ -163,6 +203,7 @@ sudo rm -f /etc/systemd/system/pi-watchdog-ui.service
 sudo systemctl daemon-reload
 sudo rm -rf /opt/pi-watchdog
 sudo rm -f /var/log/pi-watchdog.log
+rm -f ~/.local/share/pi-watchdog/speed-history.jsonl
 ```
 
 ## Notes

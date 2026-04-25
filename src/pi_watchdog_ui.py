@@ -16,7 +16,7 @@ LOG_PATH = Path(os.environ.get("PI_WATCHDOG_LOG_PATH", "/var/log/pi-watchdog.log
 SPEED_HISTORY_PATH = Path(os.environ.get(
     "PI_WATCHDOG_SPEED_HISTORY_PATH",
     str(Path.home() / ".local/share/pi-watchdog/speed-history.jsonl"),
-))
+) or str(Path.home() / ".local/share/pi-watchdog/speed-history.jsonl"))
 HOST = "0.0.0.0"
 PORT = int(os.environ.get("PI_WATCHDOG_PORT", "8098"))
 SUMMARY_WINDOW = 1000
