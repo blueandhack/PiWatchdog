@@ -91,6 +91,19 @@ HTML = """<!doctype html>
     .loading-status.active { display:inline-flex; }
     .loading-status::before { content:""; width:14px; height:14px; border-radius:999px; border:2px solid rgba(35,82,127,.22); border-top-color:var(--accent); animation:spin .75s linear infinite; }
     @keyframes spin { to { transform:rotate(360deg); } }
+    .latency-panel { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:16px; box-shadow:var(--shadow-soft); display:grid; gap:12px; }
+    .latency-head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap; }
+    .latency-title { font-size:16px; font-weight:800; }
+    .latency-sub { color:var(--muted); font-size:13px; margin-top:4px; }
+    .latency-badge { display:inline-flex; align-items:center; min-height:30px; padding:5px 9px; border-radius:999px; font-size:12px; font-weight:800; background:#eef3f7; color:#315064; white-space:nowrap; }
+    .latency-badge.good { background:#e9f7ef; color:var(--ok); }
+    .latency-badge.warn { background:#fff4e8; color:#9a5200; }
+    .latency-badge.bad { background:#fdecea; color:var(--bad); }
+    .latency-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px; }
+    .latency-metric { background:var(--surface-2); border:1px solid var(--border); border-radius:8px; padding:11px 12px; min-width:0; }
+    .latency-label { color:var(--muted); font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.04em; margin-bottom:5px; }
+    .latency-value { font-size:22px; font-weight:850; line-height:1.15; overflow-wrap:anywhere; }
+    .latency-note { color:var(--muted); font-size:12px; line-height:1.45; }
     .speed-panel { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:16px; box-shadow:var(--shadow-soft); display:grid; gap:14px; }
     .speed-head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap; }
     .speed-title { font-size:16px; font-weight:800; }
@@ -275,6 +288,7 @@ HTML = """<!doctype html>
 </header>
 <main>
   <section class="cards" id="cards"></section>
+  <section class="latency-panel" id="latencyPanel"></section>
   <section class="charts" id="charts"></section>
   <section class="speed-panel">
     <div class="speed-head">
@@ -472,6 +486,37 @@ function cards(summary) {
     ['Max Temp', summary.max_temp_c == null ? '-' : `${summary.max_temp_c.toFixed(1)} C`],
   ];
   document.getElementById('cards').innerHTML = data.map(([l,v,compact]) => `<div class="card"><div class="label">${l}</div><div class="value ${compact ? 'compact' : ''}">${v}</div></div>`).join('');
+}
+function formatMs(value) {
+  return Number.isFinite(Number(value)) ? `${Number(value).toFixed(1)} ms` : '-';
+}
+function latencyGrade(summary) {
+  const p95 = Number(summary.ping_p95_ms);
+  const max = Number(summary.ping_max_ms);
+  if (!Number.isFinite(p95)) return { kind: 'warn', text: 'No ping samples' };
+  if (summary.ping_failures > 0 || max >= 300 || p95 >= 120) return { kind: 'bad', text: 'Unstable latency' };
+  if (max >= 150 || p95 >= 60 || summary.ping_spikes_100ms > 0) return { kind: 'warn', text: 'Spikes detected' };
+  return { kind: 'good', text: 'Stable latency' };
+}
+function renderLatency(summary) {
+  const grade = latencyGrade(summary);
+  const sampleText = `${summary.ping_samples || 0} samples · ${summary.ping_spikes_100ms || 0} over 100 ms`;
+  document.getElementById('latencyPanel').innerHTML = `
+    <div class="latency-head">
+      <div>
+        <div class="latency-title">Ping Quality</div>
+        <div class="latency-sub">Gateway latency over the selected range. p95 is the value most regular pings stay under.</div>
+      </div>
+      <span class="latency-badge ${grade.kind}">${esc(grade.text)}</span>
+    </div>
+    <div class="latency-grid">
+      <div class="latency-metric"><div class="latency-label">Typical Avg</div><div class="latency-value">${esc(formatMs(summary.ping_avg_ms))}</div></div>
+      <div class="latency-metric"><div class="latency-label">p95 Avg</div><div class="latency-value">${esc(formatMs(summary.ping_p95_ms))}</div></div>
+      <div class="latency-metric"><div class="latency-label">Worst Spike</div><div class="latency-value">${esc(formatMs(summary.ping_max_ms))}</div></div>
+      <div class="latency-metric"><div class="latency-label">Jitter</div><div class="latency-value">${esc(formatMs(summary.ping_jitter_ms))}</div></div>
+      <div class="latency-metric"><div class="latency-label">Failures</div><div class="latency-value">${esc(String(summary.ping_failures || 0))}</div></div>
+    </div>
+    <div class="latency-note">${esc(sampleText)}</div>`;
 }
 function metricRows(rows) {
   return `<div class="metric-list">${rows.map(([label, value]) => `<div class="metric-row"><span>${esc(label)}</span><strong>${esc(value == null ? '-' : String(value))}</strong></div>`).join('')}</div>`;
@@ -870,7 +915,10 @@ function renderCharts() {
     ], v => v.toFixed(2)],
     ['Memory Used', 'RAM in use', [{ label: 'used', values: snapshots.map(s => s.mem_used_pct), color: '#18794e' }], v => `${v.toFixed(0)}%`],
     ['Temperature', 'max thermal zone', [{ label: 'temp', values: snapshots.map(s => s.temp_max_c), color: '#c0362c' }], v => `${v.toFixed(1)} C`],
-    ['Ping Latency', 'gateway RTT', [{ label: 'ping', values: snapshots.map(s => s.ping_avg_ms), color: '#7a3cff' }], v => `${v.toFixed(1)} ms`],
+    ['Ping Latency', 'gateway RTT avg and worst sample', [
+      { label: 'avg', values: snapshots.map(s => s.ping_avg_ms), color: '#7a3cff' },
+      { label: 'max', values: snapshots.map(s => s.ping_max_ms), color: '#d14c32' },
+    ], v => `${v.toFixed(1)} ms`],
   ];
   document.getElementById('charts').innerHTML = chartDefinitions.map(([title, meta, seriesList, formatter], index) => renderChart(title, meta, seriesList, formatter, index)).join('');
   bindChartTooltips();
@@ -1163,6 +1211,7 @@ async function refreshData(fullRender = true) {
     const newItems = mergeSnapshots(nextSnapshots, limit);
     updateMachineName(summary);
     cards(summary);
+    renderLatency(summary);
     renderCharts();
     if (fullRender || newItems.length === 0) {
       render();
@@ -1644,6 +1693,28 @@ def trailing_failures(snaps: list[dict], key: str):
     return count
 
 
+def percentile(values: list[float], pct: float):
+    nums = sorted(v for v in values if v is not None)
+    if not nums:
+        return None
+    if len(nums) == 1:
+        return nums[0]
+    index = (len(nums) - 1) * pct
+    lower = int(index)
+    upper = min(lower + 1, len(nums) - 1)
+    if lower == upper:
+        return nums[lower]
+    weight = index - lower
+    return nums[lower] * (1 - weight) + nums[upper] * weight
+
+
+def mean(values: list[float]):
+    nums = [v for v in values if v is not None]
+    if not nums:
+        return None
+    return sum(nums) / len(nums)
+
+
 def alert_status():
     snaps = load_snapshots(100)
     latest = snaps[-1] if snaps else {}
@@ -2104,11 +2175,22 @@ class Handler(BaseHTTPRequestHandler):
             limit = requested_snapshot_limit(qs, SUMMARY_WINDOW)
             snaps = load_snapshots(limit)
             temps = [s["temp_max_c"] for s in snaps if s["temp_max_c"] is not None]
+            ping_avgs = [s["ping_avg_ms"] for s in snaps if s["ping_avg_ms"] is not None]
+            ping_maxes = [s["ping_max_ms"] for s in snaps if s["ping_max_ms"] is not None]
+            ping_p95 = percentile(ping_avgs, 0.95)
+            ping_median = percentile(ping_avgs, 0.50)
+            ping_max_p95 = percentile(ping_maxes, 0.95)
             return self._json({
                 "count": len(snaps),
                 "first": snaps[0]["timestamp"] if snaps else None,
                 "last": snaps[-1]["timestamp"] if snaps else None,
                 "ping_failures": sum(1 for s in snaps if s["ping_status"] != "ok"),
+                "ping_samples": len(ping_avgs),
+                "ping_avg_ms": mean(ping_avgs),
+                "ping_p95_ms": ping_p95,
+                "ping_max_ms": max(ping_maxes) if ping_maxes else None,
+                "ping_jitter_ms": ping_max_p95 - ping_median if ping_max_p95 is not None and ping_median is not None else None,
+                "ping_spikes_100ms": sum(1 for value in ping_maxes if value >= 100),
                 "dns_failures": sum(1 for s in snaps if s["dns_status"] != "ok"),
                 "actionable_kernel": sum(1 for s in snaps if s["kernel_status"] == "actionable"),
                 "boot_noise": sum(1 for s in snaps if s["kernel_status"] == "boot-noise"),
