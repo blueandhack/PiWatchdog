@@ -4,6 +4,11 @@ set -euo pipefail
 LOG_PATH="${PI_WATCHDOG_LOG_PATH:-/var/log/pi-watchdog.log}"
 HOSTNAME_FQ="${HOSTNAME:-$(hostname)}"
 NOW="$(date --iso-8601=seconds)"
+WIFI_RECOVERY="${PI_WATCHDOG_WIFI_RECOVERY:-0}"
+WIFI_DEVICE="${PI_WATCHDOG_WIFI_DEVICE:-wlan0}"
+WIFI_FAILURE_THRESHOLD="${PI_WATCHDOG_WIFI_FAILURE_THRESHOLD:-2}"
+WIFI_RECOVERY_COOLDOWN_SECONDS="${PI_WATCHDOG_WIFI_RECOVERY_COOLDOWN_SECONDS:-600}"
+STATE_DIR="${PI_WATCHDOG_STATE_DIR:-/run/pi-watchdog}"
 
 PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
@@ -75,6 +80,84 @@ ping_check() {
     return 1
   fi
   ping -c 5 -W 2 "${gw}" 2>&1
+}
+
+recent_brcmf_timeouts() {
+  has_cmd journalctl || return 1
+  journalctl -k --since "10 minutes ago" --no-pager 2>/dev/null \
+    | grep -Eiq 'brcmf.*(status -110|err=-110|timed out|timeout)'
+}
+
+state_value() {
+  local name="$1"
+  local path="${STATE_DIR}/${name}"
+  [[ -f "${path}" ]] || { printf '0\n'; return; }
+  cat "${path}" 2>/dev/null || printf '0\n'
+}
+
+write_state() {
+  local name="$1"
+  local value="$2"
+  mkdir -p "${STATE_DIR}" 2>/dev/null || return 0
+  printf '%s\n' "${value}" > "${STATE_DIR}/${name}" 2>/dev/null || true
+}
+
+reset_wifi_failure_state() {
+  write_state "wifi-failures" "0"
+}
+
+maybe_recover_wifi() {
+  local ping_output="$1"
+  local dns_output="$2"
+  local failed=0
+  local failures last_recovery now elapsed
+
+  [[ "${WIFI_RECOVERY}" == "1" ]] || return 0
+  if ! grep -q '0% packet loss' <<<"${ping_output}" || ! grep -q 'google.com' <<<"${dns_output}"; then
+    failed=1
+  fi
+  [[ "${failed}" -eq 1 ]] || { reset_wifi_failure_state; return 0; }
+  recent_brcmf_timeouts || return 0
+
+  failures="$(state_value "wifi-failures")"
+  [[ "${failures}" =~ ^[0-9]+$ ]] || failures=0
+  failures=$((failures + 1))
+  write_state "wifi-failures" "${failures}"
+
+  section "wifi recovery"
+  out "failure_count=${failures}"
+  out "reason=network failure with recent brcmfmac timeout"
+
+  if (( failures < WIFI_FAILURE_THRESHOLD )); then
+    out "action=waiting for threshold ${WIFI_FAILURE_THRESHOLD}"
+    return 0
+  fi
+
+  now="$(date +%s)"
+  last_recovery="$(state_value "wifi-last-recovery")"
+  [[ "${last_recovery}" =~ ^[0-9]+$ ]] || last_recovery=0
+  elapsed=$((now - last_recovery))
+  if (( elapsed < WIFI_RECOVERY_COOLDOWN_SECONDS )); then
+    out "action=cooldown ${elapsed}/${WIFI_RECOVERY_COOLDOWN_SECONDS}s"
+    return 0
+  fi
+
+  write_state "wifi-last-recovery" "${now}"
+  write_state "wifi-failures" "0"
+
+  if has_cmd nmcli; then
+    out "action=nmcli radio wifi off/on"
+    run_or_true nmcli radio wifi off
+    sleep 5
+    run_or_true nmcli radio wifi on
+    sleep 5
+    run_or_true nmcli device connect "${WIFI_DEVICE}"
+  else
+    out "action=ip link bounce ${WIFI_DEVICE}"
+    run_or_true ip link set "${WIFI_DEVICE}" down
+    sleep 5
+    run_or_true ip link set "${WIFI_DEVICE}" up
+  fi
 }
 
 emit_failure_diagnostics() {
@@ -180,6 +263,8 @@ emit_failure_diagnostics() {
   if ! grep -q '0% packet loss' <<<"${ping_output}" || ! grep -q 'google.com' <<<"${dns_output}"; then
     emit_failure_diagnostics
   fi
+
+  maybe_recover_wifi "${ping_output}" "${dns_output}"
 
   out
 } >> "${LOG_PATH}"

@@ -54,10 +54,12 @@ trap 'rm -rf "${tmp_dir}"' EXIT
 render_template "${PROJECT_DIR}/systemd/pi-watchdog-log.service" "${tmp_dir}/pi-watchdog-log.service"
 render_template "${PROJECT_DIR}/systemd/pi-watchdog-log.timer" "${tmp_dir}/pi-watchdog-log.timer"
 render_template "${PROJECT_DIR}/systemd/pi-watchdog-ui.service" "${tmp_dir}/pi-watchdog-ui.service"
+render_template "${PROJECT_DIR}/logrotate/pi-watchdog" "${tmp_dir}/pi-watchdog.logrotate"
 
 install -m 644 "${tmp_dir}/pi-watchdog-log.service" /etc/systemd/system/pi-watchdog-log.service
 install -m 644 "${tmp_dir}/pi-watchdog-log.timer" /etc/systemd/system/pi-watchdog-log.timer
 install -m 644 "${tmp_dir}/pi-watchdog-ui.service" /etc/systemd/system/pi-watchdog-ui.service
+install -m 644 "${tmp_dir}/pi-watchdog.logrotate" /etc/logrotate.d/pi-watchdog
 
 systemctl daemon-reload
 systemctl enable --now pi-watchdog-log.timer

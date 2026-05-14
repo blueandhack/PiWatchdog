@@ -6,6 +6,8 @@ from datetime import datetime
 from time import monotonic
 from threading import Lock
 import calendar
+import ctypes
+import gc
 import json
 import os
 import re
@@ -25,6 +27,24 @@ DEFAULT_SNAPSHOT_LIMIT = 250
 MAX_SNAPSHOT_LIMIT = SUMMARY_WINDOW
 SPEED_CHUNK = b"\0" * (1024 * 1024)
 MAX_SPEED_BYTES = 1024 * 1024 * 1024
+CACHE_TTL_SECONDS = int(os.environ.get("PI_WATCHDOG_CACHE_TTL_SECONDS", "5"))
+TRIM_MEMORY = os.environ.get("PI_WATCHDOG_TRIM_MEMORY", "1") == "1"
+
+try:
+    LIBC = ctypes.CDLL("libc.so.6")
+except OSError:
+    LIBC = None
+
+
+def trim_memory():
+    if not TRIM_MEMORY:
+        return
+    gc.collect()
+    if LIBC is not None and hasattr(LIBC, "malloc_trim"):
+        try:
+            LIBC.malloc_trim(0)
+        except OSError:
+            pass
 
 HTML = """<!doctype html>
 <html lang="en">
@@ -1418,7 +1438,7 @@ def docker_storage_summary():
 
 
 def latest_ping_context():
-    snaps = load_snapshots()
+    snaps = load_snapshots(100)
     for snap in reversed(snaps):
         if snap.get("ping_avg_ms") is not None or snap.get("ping_max_ms") is not None:
             return {
@@ -1489,9 +1509,7 @@ def clear_speed_history():
 
 
 def snapshot_events(limit: int):
-    snaps = load_snapshots()
-    if limit:
-        snaps = snaps[-limit:]
+    snaps = load_snapshots(limit)
     events = []
     previous = None
     for snap in snaps:
@@ -1623,7 +1641,7 @@ def trailing_failures(snaps: list[dict], key: str):
 
 
 def alert_status():
-    snaps = load_snapshots()
+    snaps = load_snapshots(100)
     latest = snaps[-1] if snaps else {}
     alerts = []
 
@@ -1746,7 +1764,7 @@ def maintenance_status():
     }
 
 
-def parse_block(raw: str):
+def parse_block(raw: str, include_raw: bool = False):
     first = raw.splitlines()[0].replace("=== ", "").replace(" ===", "").strip()
     snapshot_ts = parse_snapshot_ts(first)
     load_section = extract_section(raw, "-- loadavg --", "-- memory --")
@@ -1804,7 +1822,7 @@ def parse_block(raw: str):
     if kernel_status == "actionable" and kernel_hits:
         notes.append(" | ".join(kernel_hits[:2]))
 
-    return {
+    snapshot = {
         "id": first,
         "timestamp": first,
         "ping_status": ping_status,
@@ -1822,14 +1840,17 @@ def parse_block(raw: str):
         "kernel_hits": kernel_hits[:5],
         "kernel_status": kernel_status,
         "notes_text": " ; ".join(notes),
-        "raw": raw,
     }
+    if include_raw:
+        snapshot["raw"] = raw
+    return snapshot
 
 
 SNAPSHOT_CACHE = {
     "mtime_ns": None,
     "size": None,
     "loaded_at": 0.0,
+    "limit": 0,
     "snapshots": [],
     "by_id": {},
 }
@@ -1853,7 +1874,31 @@ def read_recent_blocks(limit: int):
     return split_blocks(data.decode(errors="ignore"))[-limit:]
 
 
-def load_snapshots():
+def find_raw_snapshot(snapshot_id: str):
+    if not snapshot_id or not LOG_PATH.exists():
+        return None
+    marker = b"=== "
+    chunk_size = 262144
+    data = b""
+    with LOG_PATH.open("rb") as fh:
+        fh.seek(0, 2)
+        position = fh.tell()
+        while position > 0:
+            read_size = min(chunk_size, position)
+            position -= read_size
+            fh.seek(position)
+            data = fh.read(read_size) + data
+            text = data.decode(errors="ignore")
+            for block in reversed(split_blocks(text)):
+                if block.splitlines()[0].replace("=== ", "").replace(" ===", "").strip() == snapshot_id:
+                    return block
+            if text.startswith("=== ") and snapshot_id in text:
+                continue
+    return None
+
+
+def load_snapshots(limit: int = DEFAULT_SNAPSHOT_LIMIT):
+    limit = max(1, min(int(limit or DEFAULT_SNAPSHOT_LIMIT), MAX_SNAPSHOT_LIMIT))
     stat = LOG_PATH.stat() if LOG_PATH.exists() else None
     mtime_ns = stat.st_mtime_ns if stat else None
     size = stat.st_size if stat else None
@@ -1862,14 +1907,16 @@ def load_snapshots():
           SNAPSHOT_CACHE["snapshots"]
           and SNAPSHOT_CACHE["mtime_ns"] == mtime_ns
           and SNAPSHOT_CACHE["size"] == size
-          and monotonic() - SNAPSHOT_CACHE["loaded_at"] < 15
+          and SNAPSHOT_CACHE["limit"] >= limit
+          and monotonic() - SNAPSHOT_CACHE["loaded_at"] < CACHE_TTL_SECONDS
       ):
-          return SNAPSHOT_CACHE["snapshots"]
-      snapshots = [parse_block(block) for block in read_recent_blocks(SUMMARY_WINDOW)]
+          return SNAPSHOT_CACHE["snapshots"][-limit:]
+      snapshots = [parse_block(block) for block in read_recent_blocks(limit)]
       SNAPSHOT_CACHE.update({
           "mtime_ns": mtime_ns,
           "size": size,
           "loaded_at": monotonic(),
+          "limit": limit,
           "snapshots": snapshots,
           "by_id": {s["id"]: s for s in snapshots},
       })
@@ -1911,19 +1958,31 @@ def snapshot_brief(snapshot: dict):
 class Handler(BaseHTTPRequestHandler):
     def _json(self, data, code=200):
         body = json.dumps(data).encode()
-        self.send_response(code)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            return
+        finally:
+            del body
+            trim_memory()
 
     def _html(self, body, code=200):
         data = body.encode()
-        self.send_response(code)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.send_header("Content-Length", str(len(data)))
-        self.end_headers()
-        self.wfile.write(data)
+        try:
+            self.send_response(code)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+        except (BrokenPipeError, ConnectionResetError):
+            return
+        finally:
+            del data
+            trim_memory()
 
     def _speed_bytes(self, parsed):
         qs = parse_qs(parsed.query)
@@ -1964,24 +2023,19 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/snapshots":
             qs = parse_qs(parsed.query)
             limit = requested_snapshot_limit(qs)
-            snaps = load_snapshots()
-            snaps = snaps[-limit:]
+            snaps = load_snapshots(limit)
             return self._json([snapshot_brief(s) for s in snaps])
         if parsed.path == "/api/snapshot":
             qs = parse_qs(parsed.query)
             snapshot_id = qs.get("id", [""])[0]
-            snap = SNAPSHOT_CACHE["by_id"].get(snapshot_id)
-            if snap is None:
-                load_snapshots()
-                snap = SNAPSHOT_CACHE["by_id"].get(snapshot_id)
-            if snap is None:
-                return self._json({"error": "not found"}, 404)
-            return self._json({"id": snapshot_id, "raw": snap["raw"]})
+            raw = find_raw_snapshot(snapshot_id)
+            if raw is None:
+                return self._json({"error": "raw not found"}, 404)
+            return self._json({"id": snapshot_id, "raw": raw})
         if parsed.path == "/api/summary":
             qs = parse_qs(parsed.query)
             limit = requested_snapshot_limit(qs, SUMMARY_WINDOW)
-            snaps = load_snapshots()
-            snaps = snaps[-limit:]
+            snaps = load_snapshots(limit)
             temps = [s["temp_max_c"] for s in snaps if s["temp_max_c"] is not None]
             return self._json({
                 "count": len(snaps),

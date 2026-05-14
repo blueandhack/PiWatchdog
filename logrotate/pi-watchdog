@@ -1,0 +1,11 @@
+@PI_WATCHDOG_LOG_PATH@ {
+    daily
+    rotate 14
+    compress
+    missingok
+    notifempty
+    copytruncate
+    dateext
+    dateformat -%Y%m%d
+    create 0644 root root
+}
