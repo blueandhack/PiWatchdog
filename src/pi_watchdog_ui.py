@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 from pathlib import Path
@@ -8,11 +10,13 @@ from threading import Lock
 import calendar
 import ctypes
 import gc
+import gzip
 import json
 import os
 import re
 import shutil
 import subprocess
+from collections import deque
 
 LOG_PATH = Path(os.environ.get("PI_WATCHDOG_LOG_PATH", "/var/log/pi-watchdog.log"))
 SPEED_HISTORY_PATH = Path(os.environ.get(
@@ -1847,74 +1851,137 @@ def parse_block(raw: str, include_raw: bool = False):
 
 
 SNAPSHOT_CACHE = {
-    "mtime_ns": None,
-    "size": None,
+    "files": [],
     "loaded_at": 0.0,
     "limit": 0,
     "snapshots": [],
     "by_id": {},
 }
 SNAPSHOT_LOCK = Lock()
+FILE_SNAPSHOT_CACHE = {}
+
+
+def log_sort_key(path: Path):
+    if path == LOG_PATH:
+        return (1, "")
+    return (0, path.name)
+
+
+def log_files():
+    files = []
+    for path in LOG_PATH.parent.glob(f"{LOG_PATH.name}*"):
+        if path.is_file() and (path == LOG_PATH or path.name.startswith(f"{LOG_PATH.name}-")):
+            files.append(path)
+    return sorted(files, key=log_sort_key)
+
+
+def log_file_state(files: list[Path]):
+    state = []
+    for path in files:
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        state.append((str(path), stat.st_mtime_ns, stat.st_size))
+    return state
+
+
+def log_file_info(path: Path):
+    stat = path.stat()
+    return (str(path), stat.st_mtime_ns, stat.st_size)
+
+
+def open_log_file(path: Path):
+    if path.suffix == ".gz":
+        return gzip.open(path, "rt", encoding="utf-8", errors="ignore")
+    return path.open("r", encoding="utf-8", errors="ignore")
+
+
+def iter_log_blocks(path: Path):
+    current = []
+    try:
+        with open_log_file(path) as fh:
+            for line in fh:
+                if line.startswith("=== ") and current:
+                    yield "".join(current).rstrip() + "\n"
+                    current = [line]
+                elif line.startswith("=== "):
+                    current = [line]
+                elif current:
+                    current.append(line)
+    except (OSError, EOFError, gzip.BadGzipFile):
+        return
+    if current:
+        yield "".join(current).rstrip() + "\n"
 
 
 def read_recent_blocks(limit: int):
-    if not LOG_PATH.exists():
+    blocks = deque(maxlen=limit)
+    for path in log_files():
+        for block in iter_log_blocks(path):
+            blocks.append(block)
+    return list(blocks)
+
+
+def snapshots_from_file(path: Path):
+    try:
+        state = log_file_info(path)
+    except OSError:
         return []
-    marker = b"=== "
-    chunk_size = 262144
-    data = b""
-    with LOG_PATH.open("rb") as fh:
-        fh.seek(0, 2)
-        position = fh.tell()
-        while position > 0 and data.count(marker) <= limit:
-            read_size = min(chunk_size, position)
-            position -= read_size
-            fh.seek(position)
-            data = fh.read(read_size) + data
-    return split_blocks(data.decode(errors="ignore"))[-limit:]
+    cached = FILE_SNAPSHOT_CACHE.get(str(path))
+    if cached and cached["state"] == state:
+        return cached["snapshots"]
+
+    snapshots = deque(maxlen=MAX_SNAPSHOT_LIMIT)
+    for block in iter_log_blocks(path):
+        snapshots.append(parse_block(block))
+    snapshots = list(snapshots)
+    FILE_SNAPSHOT_CACHE[str(path)] = {
+        "state": state,
+        "snapshots": snapshots,
+    }
+    return snapshots
+
+
+def read_recent_snapshots(limit: int):
+    files = log_files()
+    active_files = {str(path) for path in files}
+    for path in list(FILE_SNAPSHOT_CACHE):
+        if path not in active_files:
+            FILE_SNAPSHOT_CACHE.pop(path, None)
+
+    snapshots = deque(maxlen=limit)
+    for path in files:
+        snapshots.extend(snapshots_from_file(path))
+    return list(snapshots)
 
 
 def find_raw_snapshot(snapshot_id: str):
-    if not snapshot_id or not LOG_PATH.exists():
+    if not snapshot_id:
         return None
-    marker = b"=== "
-    chunk_size = 262144
-    data = b""
-    with LOG_PATH.open("rb") as fh:
-        fh.seek(0, 2)
-        position = fh.tell()
-        while position > 0:
-            read_size = min(chunk_size, position)
-            position -= read_size
-            fh.seek(position)
-            data = fh.read(read_size) + data
-            text = data.decode(errors="ignore")
-            for block in reversed(split_blocks(text)):
-                if block.splitlines()[0].replace("=== ", "").replace(" ===", "").strip() == snapshot_id:
-                    return block
-            if text.startswith("=== ") and snapshot_id in text:
-                continue
+    for path in reversed(log_files()):
+        for block in iter_log_blocks(path):
+            first = block.splitlines()[0].replace("=== ", "").replace(" ===", "").strip()
+            if first == snapshot_id:
+                return block
     return None
 
 
 def load_snapshots(limit: int = DEFAULT_SNAPSHOT_LIMIT):
     limit = max(1, min(int(limit or DEFAULT_SNAPSHOT_LIMIT), MAX_SNAPSHOT_LIMIT))
-    stat = LOG_PATH.stat() if LOG_PATH.exists() else None
-    mtime_ns = stat.st_mtime_ns if stat else None
-    size = stat.st_size if stat else None
+    files = log_files()
+    file_state = log_file_state(files)
     with SNAPSHOT_LOCK:
       if (
           SNAPSHOT_CACHE["snapshots"]
-          and SNAPSHOT_CACHE["mtime_ns"] == mtime_ns
-          and SNAPSHOT_CACHE["size"] == size
+          and SNAPSHOT_CACHE["files"] == file_state
           and SNAPSHOT_CACHE["limit"] >= limit
           and monotonic() - SNAPSHOT_CACHE["loaded_at"] < CACHE_TTL_SECONDS
       ):
           return SNAPSHOT_CACHE["snapshots"][-limit:]
-      snapshots = [parse_block(block) for block in read_recent_blocks(limit)]
+      snapshots = read_recent_snapshots(limit)
       SNAPSHOT_CACHE.update({
-          "mtime_ns": mtime_ns,
-          "size": size,
+          "files": file_state,
           "loaded_at": monotonic(),
           "limit": limit,
           "snapshots": snapshots,
