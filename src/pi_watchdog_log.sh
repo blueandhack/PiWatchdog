@@ -6,6 +6,7 @@ HOSTNAME_FQ="${HOSTNAME:-$(hostname)}"
 NOW="$(date --iso-8601=seconds)"
 WIFI_RECOVERY="${PI_WATCHDOG_WIFI_RECOVERY:-0}"
 WIFI_DEVICE="${PI_WATCHDOG_WIFI_DEVICE:-wlan0}"
+WIFI_CONNECTION="${PI_WATCHDOG_WIFI_CONNECTION:-}"
 WIFI_FAILURE_THRESHOLD="${PI_WATCHDOG_WIFI_FAILURE_THRESHOLD:-2}"
 WIFI_RECOVERY_COOLDOWN_SECONDS="${PI_WATCHDOG_WIFI_RECOVERY_COOLDOWN_SECONDS:-600}"
 STATE_DIR="${PI_WATCHDOG_STATE_DIR:-/run/pi-watchdog}"
@@ -106,11 +107,21 @@ reset_wifi_failure_state() {
   write_state "wifi-failures" "0"
 }
 
+wifi_connection_name() {
+  if [[ -n "${WIFI_CONNECTION}" ]]; then
+    printf '%s\n' "${WIFI_CONNECTION}"
+    return 0
+  fi
+  has_cmd nmcli || return 1
+  nmcli -t -f NAME,TYPE,AUTOCONNECT connection show 2>/dev/null \
+    | awk -F: '$2 == "802-11-wireless" && $3 == "yes" {print $1; exit}'
+}
+
 maybe_recover_wifi() {
   local ping_output="$1"
   local dns_output="$2"
   local failed=0
-  local failures last_recovery now elapsed
+  local failures last_recovery now elapsed connection_name
 
   [[ "${WIFI_RECOVERY}" == "1" ]] || return 0
   if ! grep -q '0% packet loss' <<<"${ping_output}" || ! grep -q 'google.com' <<<"${dns_output}"; then
@@ -146,12 +157,22 @@ maybe_recover_wifi() {
   write_state "wifi-failures" "0"
 
   if has_cmd nmcli; then
+    connection_name="$(wifi_connection_name || true)"
     out "action=nmcli radio wifi off/on"
+    if [[ -n "${connection_name}" ]]; then
+      out "connection=${connection_name}"
+    fi
     run_or_true nmcli radio wifi off
     sleep 5
     run_or_true nmcli radio wifi on
     sleep 5
-    run_or_true nmcli device connect "${WIFI_DEVICE}"
+    if [[ -n "${connection_name}" ]]; then
+      run_or_true nmcli connection up "${connection_name}" ifname "${WIFI_DEVICE}"
+    else
+      run_or_true nmcli device wifi rescan ifname "${WIFI_DEVICE}"
+      run_or_true nmcli device connect "${WIFI_DEVICE}"
+    fi
+    run_or_true iw dev "${WIFI_DEVICE}" set power_save off
   else
     out "action=ip link bounce ${WIFI_DEVICE}"
     run_or_true ip link set "${WIFI_DEVICE}" down
