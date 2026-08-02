@@ -9,6 +9,9 @@ WIFI_DEVICE="${PI_WATCHDOG_WIFI_DEVICE:-wlan0}"
 WIFI_CONNECTION="${PI_WATCHDOG_WIFI_CONNECTION:-}"
 WIFI_FAILURE_THRESHOLD="${PI_WATCHDOG_WIFI_FAILURE_THRESHOLD:-2}"
 WIFI_RECOVERY_COOLDOWN_SECONDS="${PI_WATCHDOG_WIFI_RECOVERY_COOLDOWN_SECONDS:-600}"
+WIFI_REBOOT="${PI_WATCHDOG_WIFI_REBOOT:-0}"
+WIFI_REBOOT_AFTER_RECOVERIES="${PI_WATCHDOG_WIFI_REBOOT_AFTER_RECOVERIES:-3}"
+WIFI_REBOOT_COOLDOWN_SECONDS="${PI_WATCHDOG_WIFI_REBOOT_COOLDOWN_SECONDS:-21600}"
 STATE_DIR="${PI_WATCHDOG_STATE_DIR:-/run/pi-watchdog}"
 
 PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
@@ -105,6 +108,7 @@ write_state() {
 
 reset_wifi_failure_state() {
   write_state "wifi-failures" "0"
+  write_state "wifi-recoveries" "0"
 }
 
 wifi_connection_name() {
@@ -117,11 +121,44 @@ wifi_connection_name() {
     | awk -F: '$2 == "802-11-wireless" && $3 == "yes" {print $1; exit}'
 }
 
+network_healthy_quick() {
+  local gw
+  gw="$(gateway_ip)"
+  [[ -n "${gw}" ]] || return 1
+  ping -c 1 -W 2 "${gw}" >/dev/null 2>&1
+}
+
+maybe_reboot_for_wifi() {
+  local recoveries="$1"
+  local now="$2"
+  local last_reboot elapsed
+
+  [[ "${WIFI_REBOOT}" == "1" ]] || return 0
+  if (( recoveries < WIFI_REBOOT_AFTER_RECOVERIES )); then
+    out "reboot=waiting for ${WIFI_REBOOT_AFTER_RECOVERIES} recovery attempts"
+    return 0
+  fi
+
+  last_reboot="$(state_value "wifi-last-reboot")"
+  [[ "${last_reboot}" =~ ^[0-9]+$ ]] || last_reboot=0
+  elapsed=$((now - last_reboot))
+  if (( elapsed < WIFI_REBOOT_COOLDOWN_SECONDS )); then
+    out "reboot=cooldown ${elapsed}/${WIFI_REBOOT_COOLDOWN_SECONDS}s"
+    return 0
+  fi
+
+  write_state "wifi-last-reboot" "${now}"
+  out "reboot=systemctl reboot"
+  out "reboot_reason=persistent brcmfmac timeout after ${recoveries} recovery attempts"
+  sync
+  systemctl reboot
+}
+
 maybe_recover_wifi() {
   local ping_output="$1"
   local dns_output="$2"
   local failed=0
-  local failures last_recovery now elapsed connection_name
+  local failures recoveries last_recovery now elapsed connection_name
 
   [[ "${WIFI_RECOVERY}" == "1" ]] || return 0
   if ! grep -q '0% packet loss' <<<"${ping_output}" || ! grep -q 'google.com' <<<"${dns_output}"; then
@@ -155,6 +192,11 @@ maybe_recover_wifi() {
 
   write_state "wifi-last-recovery" "${now}"
   write_state "wifi-failures" "0"
+  recoveries="$(state_value "wifi-recoveries")"
+  [[ "${recoveries}" =~ ^[0-9]+$ ]] || recoveries=0
+  recoveries=$((recoveries + 1))
+  write_state "wifi-recoveries" "${recoveries}"
+  out "recovery_attempts=${recoveries}"
 
   if has_cmd nmcli; then
     connection_name="$(wifi_connection_name || true)"
@@ -178,6 +220,14 @@ maybe_recover_wifi() {
     run_or_true ip link set "${WIFI_DEVICE}" down
     sleep 5
     run_or_true ip link set "${WIFI_DEVICE}" up
+  fi
+
+  if network_healthy_quick; then
+    out "recovery_result=network healthy"
+    reset_wifi_failure_state
+  else
+    out "recovery_result=network still unhealthy"
+    maybe_reboot_for_wifi "${recoveries}" "${now}"
   fi
 }
 
