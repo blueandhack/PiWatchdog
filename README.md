@@ -133,6 +133,7 @@ Default install behavior:
   - `pi-watchdog-log.service`
   - `pi-watchdog-log.timer`
   - `pi-watchdog-ui.service`
+  - `rockpi-dmc-stability.service`
 - serves the UI on port `8098`
 
 Then open:
@@ -179,6 +180,7 @@ Check timer and services:
 ```bash
 systemctl status pi-watchdog-log.timer
 systemctl status pi-watchdog-ui.service
+systemctl status rockpi-dmc-stability.service
 ```
 
 Watch the log:
@@ -196,10 +198,11 @@ sudo journalctl -u pi-watchdog-ui.service -n 100 --no-pager
 ## Uninstall
 
 ```bash
-sudo systemctl disable --now pi-watchdog-log.timer pi-watchdog-ui.service
+sudo systemctl disable --now pi-watchdog-log.timer pi-watchdog-ui.service rockpi-dmc-stability.service
 sudo rm -f /etc/systemd/system/pi-watchdog-log.service
 sudo rm -f /etc/systemd/system/pi-watchdog-log.timer
 sudo rm -f /etc/systemd/system/pi-watchdog-ui.service
+sudo rm -f /etc/systemd/system/rockpi-dmc-stability.service
 sudo systemctl daemon-reload
 sudo rm -rf /opt/pi-watchdog
 sudo rm -f /var/log/pi-watchdog.log
@@ -210,4 +213,5 @@ rm -f ~/.local/share/pi-watchdog/speed-history.jsonl
 
 - The UI intentionally loads a recent window instead of the entire lifetime log so it stays fast on small boards.
 - Kernel boot-time noise is visually separated from active warnings.
+- On Rock Pi systems with the DMC sysfs control, the stability service prevents repeated failed memory-frequency boosts. It is skipped automatically on other hardware.
 - The UI uses plain HTTP by default. If you want HTTPS and HTTP/2, put a reverse proxy like Caddy or nginx in front of it.

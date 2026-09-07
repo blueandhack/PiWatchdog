@@ -1,0 +1,12 @@
+[Unit]
+Description=Keep Rock Pi memory controller at its stable frequency
+ConditionPathExists=/sys/class/devfreq/dmc/max_freq
+After=systemd-modules-load.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'echo 416000000 > /sys/class/devfreq/dmc/max_freq'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

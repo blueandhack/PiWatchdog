@@ -59,12 +59,14 @@ render_template "${PROJECT_DIR}/logrotate/pi-watchdog" "${tmp_dir}/pi-watchdog.l
 install -m 644 "${tmp_dir}/pi-watchdog-log.service" /etc/systemd/system/pi-watchdog-log.service
 install -m 644 "${tmp_dir}/pi-watchdog-log.timer" /etc/systemd/system/pi-watchdog-log.timer
 install -m 644 "${tmp_dir}/pi-watchdog-ui.service" /etc/systemd/system/pi-watchdog-ui.service
+install -m 644 "${PROJECT_DIR}/systemd/rockpi-dmc-stability.service" /etc/systemd/system/rockpi-dmc-stability.service
 install -m 644 "${tmp_dir}/pi-watchdog.logrotate" /etc/logrotate.d/pi-watchdog
 
 systemctl daemon-reload
 systemctl enable --now pi-watchdog-log.timer
 systemctl restart pi-watchdog-log.service
 systemctl enable --now pi-watchdog-ui.service
+systemctl enable --now rockpi-dmc-stability.service
 
 echo
 echo "PiWatchdog is installed."
