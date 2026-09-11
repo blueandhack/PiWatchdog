@@ -106,6 +106,7 @@ Tested on Debian and Ubuntu-style systems with:
 - `iproute2`
 - `ping`
 - `getent`
+- `logrotate`
 
 Optional but supported:
 

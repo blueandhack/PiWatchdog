@@ -326,7 +326,9 @@ emit_failure_diagnostics() {
 
   section "recent kernel warnings"
   if has_cmd journalctl; then
-    run_or_true journalctl -k -p warning -n 40 --no-pager
+    journalctl -k -p warning --since "2 minutes ago" -n 40 --no-pager 2>&1 \
+      | grep -Ev 'brcmf_sdio_bus_watchdog: DPC active Skip sleep|dwhdmi-rockchip .*: Rate 0 missing; compute N dynamically' \
+      || true
   else
     out "journalctl not available"
   fi

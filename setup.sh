@@ -30,6 +30,11 @@ render_template() {
 
 require_root
 
+if ! command -v logrotate >/dev/null 2>&1; then
+  apt-get update
+  DEBIAN_FRONTEND=noninteractive apt-get install -y logrotate
+fi
+
 echo "Installing PiWatchdog"
 echo "  user: ${PI_WATCHDOG_USER}"
 echo "  port: ${PI_WATCHDOG_PORT}"
