@@ -184,6 +184,12 @@ systemctl status pi-watchdog-ui.service
 systemctl status rockpi-dmc-stability.service
 ```
 
+For the Rock Pi's Broadcom/Cypress SDIO Wi-Fi, setup also installs
+`/etc/modprobe.d/brcmfmac-stability.conf`. It disables the driver's very short
+SDIO bus-idle sleep timeout, avoiding the harmless but noisy
+`DPC active Skip sleep` race and favoring server latency and stability over the
+small power saving. Reboot once after installing or changing this setting.
+
 Watch the log:
 
 ```bash

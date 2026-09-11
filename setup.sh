@@ -66,6 +66,7 @@ install -m 644 "${tmp_dir}/pi-watchdog-log.timer" /etc/systemd/system/pi-watchdo
 install -m 644 "${tmp_dir}/pi-watchdog-ui.service" /etc/systemd/system/pi-watchdog-ui.service
 install -m 644 "${PROJECT_DIR}/systemd/rockpi-dmc-stability.service" /etc/systemd/system/rockpi-dmc-stability.service
 install -m 644 "${tmp_dir}/pi-watchdog.logrotate" /etc/logrotate.d/pi-watchdog
+install -m 644 "${PROJECT_DIR}/modprobe/brcmfmac-stability.conf" /etc/modprobe.d/brcmfmac-stability.conf
 
 systemctl daemon-reload
 systemctl enable --now pi-watchdog-log.timer
@@ -76,3 +77,4 @@ systemctl enable --now rockpi-dmc-stability.service
 echo
 echo "PiWatchdog is installed."
 echo "Open: http://$(hostname -I | awk '{print $1}'):${PI_WATCHDOG_PORT}/"
+echo "Reboot once if brcmfmac-stability.conf was newly installed or changed."
