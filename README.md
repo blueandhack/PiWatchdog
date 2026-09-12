@@ -190,6 +190,11 @@ SDIO bus-idle sleep timeout, avoiding the harmless but noisy
 `DPC active Skip sleep` race and favoring server latency and stability over the
 small power saving. Reboot once after installing or changing this setting.
 
+Setup also caps the persistent system journal at 100 MB, reserves at least
+1 GB of filesystem space, and expires journal entries older than 14 days. This
+keeps diagnostics useful without allowing routine system logging to grow
+indefinitely on the SD card.
+
 Watch the log:
 
 ```bash

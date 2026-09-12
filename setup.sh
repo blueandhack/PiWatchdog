@@ -67,8 +67,11 @@ install -m 644 "${tmp_dir}/pi-watchdog-ui.service" /etc/systemd/system/pi-watchd
 install -m 644 "${PROJECT_DIR}/systemd/rockpi-dmc-stability.service" /etc/systemd/system/rockpi-dmc-stability.service
 install -m 644 "${tmp_dir}/pi-watchdog.logrotate" /etc/logrotate.d/pi-watchdog
 install -m 644 "${PROJECT_DIR}/modprobe/brcmfmac-stability.conf" /etc/modprobe.d/brcmfmac-stability.conf
+install -d -m 755 /etc/systemd/journald.conf.d
+install -m 644 "${PROJECT_DIR}/journald/pi-watchdog-retention.conf" /etc/systemd/journald.conf.d/pi-watchdog-retention.conf
 
 systemctl daemon-reload
+systemctl restart systemd-journald
 systemctl enable --now pi-watchdog-log.timer
 systemctl restart pi-watchdog-log.service
 systemctl enable --now pi-watchdog-ui.service
